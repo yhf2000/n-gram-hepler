@@ -1,0 +1,8 @@
+/.idea
+/build
+/cmake-build-debug
+/libs
+/nlohmann
+/pybind11
+SA
+test.cpp
