@@ -6,3 +6,6 @@
 /pybind11
 SA
 test.cpp
+
+/csrc/build
+/csrc/cmake-build-debug
