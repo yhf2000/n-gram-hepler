@@ -9,3 +9,5 @@ test.cpp
 
 /csrc/build
 /csrc/cmake-build-debug
+/DraftRetriever/target
+/DraftRetriever/wheels
