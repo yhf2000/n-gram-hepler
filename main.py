@@ -6,53 +6,66 @@ from typing import List, Union
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import SA_token
+import Trie_token
+import draftretriever
+import time
 
 
-
-
-# 修复类名为驼峰式命名
 class PredictItem(BaseModel):
     task_id: str
     candidate_num: int
     token_lists: List[List[int]]
-    method: str  # 需确认是否实际使用
-    dataset: str  # 需确认是否实际使用
+    method: str
+    dataset: List[str]
 
 
 class InitItem(BaseModel):
     task_id: str
-    token_lists: List[List[int]]
+    token_lists: List[int]
+
+class CloseItem(BaseModel):
+    task_id: str
 
 
-# 明确字段类型，添加更精确的类型注解
+
 class OutItem(BaseModel):
     status: str
-    token: List[List[int]]  # 更明确的字段名
-    prob: List[List[float]]  # 假设概率是二维列表
+    token: List[List[int]]
+    prob: List[List[float]]
 
-
-SA_token.chatbuild("/data/share/SA_data/datastore_chat_large.txt")
-SA_token.chatbuild("/data/share/SA_data/datastore_stack_large.txt")
-
+class ReturnItem(BaseModel):
+    status: str
 app = FastAPI()
 
 
-# 改为POST方法更符合语义
+@app.on_event("startup")
+def startup_event():
+    # SA_token.chatbuild("/home/lth/n-gram-hepler/datastore_chat_large.txt")
+    global reader_chat, reader_code
+    reader_chat = draftretriever.Reader(index_file_path='~/lth_code/REST_llama3/REST/datastore/datastore_chat_large.idx',)
+    reader_code = draftretriever.Reader(index_file_path='~/lth_code/REST_llama3/REST/datastore/datastore_stack_large.idx',)
+
+
 @app.post("/predict", response_model=OutItem)
 async def predict_item(item: PredictItem):
     try:
-        # 实际使用中需要确认method和dataset参数的用途
-        if (item.dataset == "ultra_chat"):
-            token_lists, probabilities = SA_token.chat_get_SA_tokens(
-                item.token_lists,
-                item.candidate_num
-            )
-        elif (item.dataset == "the_stack_dedup"):
-            token_lists, probabilities = SA_token.stack_get_SA_tokens(
-                item.token_lists,
-                item.candidate_num
-            )
-
+        if (item.method == "s_sa"):
+            if (item.dataset[0] == "ultra_chat"):
+                token_lists = []
+                probabilities = []
+                for token in item.token_lists:
+                    tokens, prob = reader_chat.search(token, item.candidate_num)
+                    token_lists.append(tokens)
+                    probabilities.append(prob)
+            elif (item.dataset[0] == "the_stack_dedup"):
+                token_lists = []
+                probabilities = []
+                for token in item.token_lists:
+                    tokens, prob = reader_code.search(token, item.candidate_num)
+                    token_lists.append(tokens)
+                    probabilities.append(prob)
+        elif (item.method == "d_trie"):
+            token_lists, probabilities = Trie_token.get_Trie_tokens(item.token_lists, item.candidate_num)
         return OutItem(
             status="success",
             token=token_lists,
@@ -67,19 +80,23 @@ async def predict_item(item: PredictItem):
 
 
 # 可选：添加初始化端点
-@app.post("/init")
+@app.post("/init", response_model=ReturnItem)
 async def init_datastore(item: InitItem):
-    try:
-        # 假设有对应的初始化方法
-        SA_token.initialize_processing(item.task_id, item.token_lists)
-        return {"status": "initialization successful"}
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Initialization failed: {str(e)}"
-        )
+    Trie_token.insert(item.task_id, item.token_lists)
+    return ReturnItem(
+        status="success",
+    )
+
+
+@app.post("/close", response_model=ReturnItem)
+async def close_datastore(item: CloseItem):
+    Trie_token.seq_end(item.task_id)
+    return ReturnItem(
+        status="success",
+    )
+
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8099, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8099)
 
 # uvicorn FASTAPI:app --host 0.0.0.0 --port 8099

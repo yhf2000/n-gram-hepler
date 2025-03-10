@@ -9,10 +9,12 @@
 #include <fstream>
 #include <sstream>
 #include <unordered_map>
+#include <filesystem>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
 namespace py = pybind11;
+namespace fs = std::filesystem;
 
 class SuffixArray {
 public:
@@ -28,12 +30,10 @@ public:
     int SA_length;
     int *S;
     int *result_SA;
-    int *result_RK;
 
     ~SuffixArray() {
         delete[] S;
         delete[] result_SA;
-        delete[] result_RK;
     }
 
     bool is_lms_char(const int *type, int x) {
@@ -174,7 +174,6 @@ public:
     void print()
     {
         for (int i = 0; i < SA_length; i++) std::cout << result_SA[i] << ' '; std::cout << std::endl;
-        for (int i = 0; i < SA_length; i++) std::cout << result_RK[i] << ' '; std::cout << std::endl;
     }
 
     void build(const std::vector<int>& s, int SIGMA) {
@@ -188,11 +187,8 @@ public:
 
         S = new int[length];
         result_SA = new int[length];
-        result_RK = new int[length];
         for (int i = 0; i < length; i++)
             result_SA[i] = SA[i + 1];
-        for (int i = 0; i < length; i++)
-            result_RK[result_SA[i]] = i;
         for (int i = 0; i < length; i++)
             S[i] = s[i];
         SA_length = length;
@@ -235,11 +231,9 @@ public:
         std::ifstream file(path);
         if (!file.is_open())  return;
         std::string line_str;
+        int H = 0, mod = 998244353;
         while (std::getline(file, line_str)) {
-            // line_str.erase(std::remove(line_str.begin(), line_str.end(), '['), line_str.end());
-            // line_str.erase(std::remove(line_str.begin(), line_str.end(), ']'), line_str.end());
             line_str.erase(line_str.begin());
-            // line_str.erase(line_str.end());
             line_str.pop_back();
             std::replace(line_str.begin(), line_str.end(), ',', ' ');
 
@@ -247,10 +241,54 @@ public:
             int num;
             while (iss >> num) {
                 numbers.push_back(num);
+                H += numbers.back();
+                H %= mod;
             }
             numbers.push_back(128001);
         }
-        build(numbers, 129000);
+        file.close();
+        std::string filename = "/data/share/SA_data/" + std::to_string(H) +".txt";
+        if (fs::exists(filename))
+        {
+            std::string line;
+            std::ifstream File(filename);
+            std::getline(File, line);
+            std::istringstream ISS(line);
+            ISS >> SA_length;
+            S = new int[SA_length];
+            result_SA = new int[SA_length];
+            int now = 0;
+            while (std::getline(File, line))
+            {
+                std::istringstream IS(line);
+                int num;
+                while (IS >> num) {
+                    if (now < SA_length) S[now] = num;
+                    else result_SA[now - SA_length] = num;
+                }
+            }
+            File.close();
+        }
+        else
+        {
+            build(numbers, 129000);
+            std::ofstream File(filename);
+            File << SA_length;
+            File << '\n';
+            for (int i = 0; i < SA_length; i++)
+            {
+                File << S[i];
+                File << ' ';
+            }
+            File << '\n';
+            for (int i = 0; i < SA_length; i++)
+            {
+                File << result_SA[i];
+                File << ' ';
+            }
+            File << '\n';
+            File.close();
+        }
     }
 
     std::pair<std::vector<int>, std::vector<float>> find(std::vector<int> tokens, int top) {
@@ -259,21 +297,27 @@ public:
         std::vector<int> positions = result.first;
         std::vector<node> members;
         std::unordered_map <int, int> vis;
+        std::unordered_map <int, int> Vis;
         for (auto i : positions) {
             if (i < SA_length) {
                 int token = S[i];
                 vis[token]++;
-                num++;
             }
         }
         for (auto i : positions) {
             if (i < SA_length) {
                 int token = S[i];
-                members.push_back({token, vis[token]});
+                if (Vis[token] == 0)
+                {
+                    Vis[token]++;
+                    members.push_back({token, vis[token]});
+                }
             }
         }
         sort(members.begin(), members.end());
         std::pair<std::vector<int>, std::vector<float>> R;
+        for (int i = 0; i < top && i < members.size(); i++)
+            num += vis[members[i].id];
         for (int i = 0; i < top && i < members.size(); i++)
         {
             R.first.push_back(members[i].id);
@@ -288,7 +332,7 @@ SuffixArray sa_chat, sa_stack;
 std::pair<std::vector<std::vector<int>>, std::vector<std::vector<float>>> chat_get_SA_tokens(std::vector<std::vector<int>> input, int top) {
     std::pair<std::vector<std::vector<int>>, std::vector<std::vector<float>>> results;
     for (auto tokens : input) {
-
+        int flag = 0;
         for (int i = 0; i < tokens.size(); i++)
         {
             std::vector<int> T;
@@ -297,10 +341,18 @@ std::pair<std::vector<std::vector<int>>, std::vector<std::vector<float>>> chat_g
 
             if (!result.first.empty())
             {
+                flag = 1;
                 results.first.push_back(result.first);
                 results.second.push_back(result.second);
                 break;
             }
+        }
+        if (!flag)
+        {
+            std::vector<int> N;
+            std::vector<float> NU;
+            results.first.push_back(N);
+            results.second.push_back(NU);
         }
     }
     return results;
@@ -309,9 +361,10 @@ std::pair<std::vector<std::vector<int>>, std::vector<std::vector<float>>> chat_g
 std::pair<std::vector<std::vector<int>>, std::vector<std::vector<float>>> stack_get_SA_tokens(std::vector<std::vector<int>> input, int top) {
     std::pair<std::vector<std::vector<int>>, std::vector<std::vector<float>>> results;
     for (auto tokens : input) {
-
+        int flag = 0;
         for (int i = 0; i < tokens.size(); i++)
         {
+
             std::vector<int> T;
             for (auto j = tokens.begin() + i; j != tokens.end(); j++)  T.push_back(*j);
             std::pair<std::vector<int>, std::vector<float>> result = sa_stack.find(T, top);
@@ -320,8 +373,16 @@ std::pair<std::vector<std::vector<int>>, std::vector<std::vector<float>>> stack_
             {
                 results.first.push_back(result.first);
                 results.second.push_back(result.second);
+                flag = 1;
                 break;
             }
+        }
+        if (!flag)
+        {
+            std::vector<int> N;
+            std::vector<float> NU;
+            results.first.push_back(N);
+            results.second.push_back(NU);
         }
     }
     return results;
