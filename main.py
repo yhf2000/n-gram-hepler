@@ -1,14 +1,14 @@
 import sys
 sys.path.append("csrc/build")
 import uvicorn
-from datetime import datetime
-from typing import List, Union
+from typing import List
 from fastapi import FastAPI, HTTPException
+from contextlib import asynccontextmanager
 from pydantic import BaseModel
-import SA_token
 import Trie_token
-import draftretriever
+import SA_token
 import time
+import draftretriever
 
 
 class PredictItem(BaseModel):
@@ -26,8 +26,6 @@ class InitItem(BaseModel):
 class CloseItem(BaseModel):
     task_id: str
 
-
-
 class OutItem(BaseModel):
     status: str
     token: List[List[int]]
@@ -35,15 +33,19 @@ class OutItem(BaseModel):
 
 class ReturnItem(BaseModel):
     status: str
-app = FastAPI()
 
 
-@app.on_event("startup")
-def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     # SA_token.chatbuild("/home/lth/n-gram-hepler/datastore_chat_large.txt")
-    global reader_chat, reader_code
-    reader_chat = draftretriever.Reader(index_file_path='~/lth_code/REST_llama3/REST/datastore/datastore_chat_large.idx',)
-    reader_code = draftretriever.Reader(index_file_path='~/lth_code/REST_llama3/REST/datastore/datastore_stack_large.idx',)
+    st = time.time()
+    # app.state.reader_chat = draftretriever.Reader(index_file_path='/home/lth/lth_code/REST_llama3/REST/datastore/datastore_chat_large.idx',)
+    # app.state.reader_code = draftretriever.Reader(index_file_path='/home/lth/lth_code/REST_llama3/REST/datastore/datastore_stack_large.idx',)
+    et = time.time()
+    print("build cost: ", et - st)
+    yield
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.post("/predict", response_model=OutItem)
@@ -54,14 +56,14 @@ async def predict_item(item: PredictItem):
                 token_lists = []
                 probabilities = []
                 for token in item.token_lists:
-                    tokens, prob = reader_chat.search(token, item.candidate_num)
+                    tokens, prob = app.state.reader_chat.search(token, item.candidate_num)
                     token_lists.append(tokens)
                     probabilities.append(prob)
             elif (item.dataset[0] == "the_stack_dedup"):
                 token_lists = []
                 probabilities = []
                 for token in item.token_lists:
-                    tokens, prob = reader_code.search(token, item.candidate_num)
+                    tokens, prob = app.state.reader_code.search(token, item.candidate_num)
                     token_lists.append(tokens)
                     probabilities.append(prob)
         elif (item.method == "d_trie"):
