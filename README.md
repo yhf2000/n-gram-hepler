@@ -10,7 +10,7 @@ cmake -B build -DPython_EXECUTABLE=$(which python)
 cmake --build build
 ```
 
-### 如何安装REST的SA
+## 如何安装REST的SA
 
 ```shell
 conda activate ngram
