@@ -260,7 +260,7 @@ std::pair<std::vector<std::vector<int>>, std::vector<std::vector<float>>> get_Tr
     return results;
 }
 
-void insert(std::string task, std::vector<int>tokens, int flag = 0) {
+void insert(std::string task, std::vector<int>tokens) {
     trie.INSERT(task, tokens);
 }
 
