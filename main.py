@@ -7,7 +7,9 @@ from contextlib import asynccontextmanager
 from pydantic import BaseModel
 import Trie_token
 import SA_token
+import GSAM_token
 import time
+from concurrent.futures import ThreadPoolExecutor
 import draftretriever
 
 
@@ -20,6 +22,7 @@ class PredictItem(BaseModel):
 
 
 class InitItem(BaseModel):
+    method: str
     task_id: str
     token_lists: List[int]
 
@@ -67,7 +70,40 @@ async def predict_item(item: PredictItem):
                     token_lists.append(tokens)
                     probabilities.append(prob)
         elif (item.method == "d_trie"):
-            token_lists, probabilities = Trie_token.get_Trie_tokens(item.token_lists, item.candidate_num)
+            # token_lists = []
+            # probabilities = []
+            # for token in item.token_lists:
+            #     tokens, prob = Trie_token.get_Trie_tokens(token, item.candidate_num)
+            #     token_lists.append(tokens)
+            #     probabilities.append(prob)
+            with ThreadPoolExecutor() as executor:
+                results = list(executor.map(
+                    lambda token: Trie_token.get_Trie_tokens(token, item.candidate_num),
+                    item.token_lists
+                ))
+
+            # 使用zip*技巧拆分结果到两个列表
+            token_lists, probabilities = zip(*results) if results else ([], [])
+            token_lists = list(token_lists)
+            probabilities = list(probabilities)
+        elif (item.method == "gsam"):
+            # token_lists = []
+            # probabilities = []
+            # for token in item.token_lists:
+            #     tokens, prob = GSAM_token.get_SAM_tokens(token, item.candidate_num)
+            #     token_lists.append(tokens)
+            #     probabilities.append(prob)
+            with ThreadPoolExecutor() as executor:
+                # 使用map方法并行执行，保持输入输出顺序一致
+                results = list(executor.map(
+                    lambda token: GSAM_token.get_SAM_tokens(token, item.candidate_num),
+                    item.token_lists
+                ))
+
+            # 使用zip*技巧拆分结果到两个列表
+            token_lists, probabilities = zip(*results) if results else ([], [])
+            token_lists = list(token_lists)
+            probabilities = list(probabilities)
         return OutItem(
             status="success",
             token=token_lists,
@@ -84,7 +120,10 @@ async def predict_item(item: PredictItem):
 # 可选：添加初始化端点
 @app.post("/init", response_model=ReturnItem)
 async def init_datastore(item: InitItem):
-    Trie_token.insert(item.task_id, item.token_lists)
+    if item.method == 'd_trie':
+        Trie_token.insert(item.task_id, item.token_lists)
+    elif item.method == 'gsam':
+        GSAM_token.insert(item.task_id, item.token_lists)
     return ReturnItem(
         status="success",
     )
