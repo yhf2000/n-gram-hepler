@@ -21,7 +21,6 @@ public:
         }
     };
 
-
     struct TrieNode {
         int vis_count = 0;
         int deepth = 0;
@@ -232,32 +231,18 @@ public:
 
 Trie trie;
 
-std::pair<std::vector<std::vector<int>>, std::vector<std::vector<float>>> get_Trie_tokens(std::vector<std::vector<int>> input, int top) {
-    std::pair<std::vector<std::vector<int>>, std::vector<std::vector<float>>> results;
-    for (auto tokens : input) {
-        int flag = 0;
-        for (int i = 0; i < tokens.size(); i++)
-        {
-            std::vector<int> T;
-            for (auto j = tokens.begin() + i; j != tokens.end(); j++)  T.push_back(*j);
-            std::pair<std::vector<int>, std::vector<float>> result = trie.find(T, top);
-            if (!result.first.empty())
-            {
-                flag = 1;
-                results.first.push_back(result.first);
-                results.second.push_back(result.second);
-                break;
-            }
-        }
-        if (flag == 0)
-        {
-            std::vector<int> N;
-            std::vector<float> NU;
-            results.first.push_back(N);
-            results.second.push_back(NU);
-        }
+std::pair<std::vector<int>, std::vector<float>> get_Trie_tokens(std::vector<int> tokens, int top) {
+    for (int i = 0; i < tokens.size(); i++)
+    {
+        std::vector<int> T;
+        for (auto j = tokens.begin() + i; j != tokens.end(); j++)  T.push_back(*j);
+        std::pair<std::vector<int>, std::vector<float>> result = trie.find(T, top);
+        if (!result.first.empty())
+            return result;
     }
-    return results;
+    std::vector<int> N;
+    std::vector<float> NU;
+    return {N, NU};
 }
 
 void insert(std::string task, std::vector<int>tokens) {
@@ -275,18 +260,18 @@ PYBIND11_MODULE(Trie_token, m) {
 }
 
 int main() {
-    insert("1", {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16});
-    insert("1", {17, 18, 19, 20, 21, 22, 23, 24});
-    seq_end("1");
-    insert("2", {1, 2, 4, 5});
-    insert("2", {2, 3, 4, 5});
-    std::pair<std::vector<std::vector<int>>, std::vector<std::vector<float>>>ans = get_Trie_tokens({{1, 2}}, 2);
-    for (auto i : ans.first)
-        for (auto out : i)
-            std::cout << out << ' ';
-    std::cout << std::endl;
-    for (auto i : ans.second)
-        for (auto out : i)
-            std::cout << out << ' ';
+//    insert("1", {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16});
+//    insert("1", {17, 18, 19, 20, 21, 22, 23, 24});
+//    seq_end("1");
+//    insert("2", {1, 2, 4, 5});
+//    insert("2", {2, 3, 4, 5});
+//    std::pair<std::vector<std::vector<int>>, std::vector<std::vector<float>>>ans = get_Trie_tokens({{1, 2}}, 2);
+//    for (auto i : ans.first)
+//        for (auto out : i)
+//            std::cout << out << ' ';
+//    std::cout << std::endl;
+//    for (auto i : ans.second)
+//        for (auto out : i)
+//            std::cout << out << ' ';
     return 0;
 }
