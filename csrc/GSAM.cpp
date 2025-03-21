@@ -162,9 +162,13 @@ struct SuffixAutomaton {
         Node(int max = 0) : ch(), next(nullptr), max(max) {}
     } *start, *last;
     std::unordered_map<Node*, int> Node_id;
+    std::unordered_map<std::string, int> task_id;
+    std::unordered_map<int, Node*> task_last;
     int Node_cnt;
+    int task_cnt;
     void init() {
         Node_cnt = 0;
+        task_cnt = 0;
         start = last = new Node;
         Node_id[start] = (Node_cnt++);
     }
@@ -236,9 +240,23 @@ struct SuffixAutomaton {
     }
 } gsam;
 
-void insert(std::vector<int> tokens) {
-    for (auto token : tokens)
-        gsam.extend(token);
+void insert(const std::string task, const std::vector<std::vector<int>> tokens) {
+    if (gsam.task_id[task] == 0)
+    {
+        gsam.task_cnt++;
+        gsam.task_id[task] = gsam.task_cnt;
+        gsam.task_last[gsam.task_id[task]] = gsam.start;
+    }
+    for (int i = 0; i < tokens.size(); i++)
+    {
+        SuffixAutomaton::Node *cur = gsam.task_last[gsam.task_id[task]];
+        for (int j = 0; j < tokens[i].size(); j++)
+        {
+            gsam.last = cur;
+            if (j == 0)  gsam.task_last[gsam.task_id[task]] = gsam.extend(tokens[i][j]);
+            else  gsam.extend(tokens[i][j]);
+        }
+    }
 }
 
 std::pair<std::vector<int>, std::vector<float>> get_GSAM_tokens(std::vector<int> tokens, int top) {
