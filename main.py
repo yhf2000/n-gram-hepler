@@ -24,7 +24,7 @@ class PredictItem(BaseModel):
 class InitItem(BaseModel):
     method: str
     task_id: str
-    token_lists: List[int]
+    token_lists: List[List[int]]
 
 class CloseItem(BaseModel):
     task_id: str
@@ -121,7 +121,7 @@ async def predict_item(item: PredictItem):
 @app.post("/init", response_model=ReturnItem)
 async def init_datastore(item: InitItem):
     if item.method == 'd_trie':
-        Trie_token.insert(item.task_id, item.token_lists)
+        Trie_token.insert(item.task_id, item.token_lists[0])
     elif item.method == 'gsam':
         GSAM_token.insert(item.task_id, item.token_lists)
     return ReturnItem(
