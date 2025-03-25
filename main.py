@@ -87,23 +87,18 @@ async def predict_item(item: PredictItem):
             token_lists = list(token_lists)
             probabilities = list(probabilities)
         elif (item.method == "gsam"):
-            # token_lists = []
-            # probabilities = []
-            # for token in item.token_lists:
-            #     tokens, prob = GSAM_token.get_SAM_tokens(token, item.candidate_num)
-            #     token_lists.append(tokens)
-            #     probabilities.append(prob)
-            with ThreadPoolExecutor() as executor:
-                # 使用map方法并行执行，保持输入输出顺序一致
-                results = list(executor.map(
-                    lambda token: GSAM_token.get_SAM_tokens(token, item.candidate_num),
-                    item.token_lists
-                ))
+            token_lists = []
+            probabilities = []
+            for token in item.token_lists:
+                History, Self = GSAM_token.get_SAM_tokens(token, item.candidate_num)
 
-            # 使用zip*技巧拆分结果到两个列表
-            token_lists, probabilities = zip(*results) if results else ([], [])
-            token_lists = list(token_lists)
-            probabilities = list(probabilities)
+                token_lists.append(History[0])
+                token_lists.append(Self[0])
+
+                probabilities.append(History[1])
+                probabilities.append(Self[1])
+
+
         return OutItem(
             status="success",
             token=token_lists,
