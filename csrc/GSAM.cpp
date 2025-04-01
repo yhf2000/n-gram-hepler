@@ -165,8 +165,8 @@ struct SuffixAutomatonSet {
             std::unordered_map<int, Node*>ch;
             Node *next;
             int max;
-
-            Node(int max = 0) : ch(), next(nullptr), max(max) {}
+            int num;
+            Node(int max = 0) : ch(), next(nullptr), max(max), num(0) {}
         } *start, *last;
         std::unordered_map<Node*, int> Node_id;
 
@@ -240,18 +240,81 @@ struct SuffixAutomatonSet {
             for (int i = 0; i < top && i < members.size(); i++)
             {
                 result.first.push_back(members[i].id);
-                result.second.push_back(members[i].cnt / num);
+                result.second.push_back(members[i].cnt);
             }
             return result;
         }
+        size_t data_size() {
+            size_t total = 0;
+            const size_t LINK_CUT_NODE_SIZE = sizeof(LinkCutTree::Node) + sizeof(int) + 2 * sizeof(void*);
+            total += lct.N.size() * LINK_CUT_NODE_SIZE;
+            const size_t NODE_STATIC_SIZE = sizeof(Node);
+            total += Node_cnt * NODE_STATIC_SIZE;
+            const size_t AVG_CH_PER_NODE = 2;
+            const size_t CH_NODE_SIZE = sizeof(int) + sizeof(Node*) + 2 * sizeof(void*);
+            total += Node_cnt * AVG_CH_PER_NODE * CH_NODE_SIZE;
+            const size_t NODE_ID_NODE_SIZE = sizeof(Node*) + sizeof(int) + 2 * sizeof(void*);
+            total += Node_id.size() * NODE_ID_NODE_SIZE;
+            total += sizeof(start) + sizeof(last) + sizeof(Node_cnt);
+            return total;
+        }
     };
-    SuffixAutomaton HistoryGSAM;
+
+    void update_historyGSAM(SuffixAutomaton SAM, SuffixAutomaton::Node* cur) {
+        cur->num = SAM.lct.query(SAM.id(cur));
+        for (auto to : cur->ch)
+            update_historyGSAM(SAM, to.second);
+    }
+    void count_historyGSAM(const SuffixAutomaton& SAM) {
+        auto root = SAM.start;
+        update_historyGSAM(SAM, root);
+    }
+    std::unordered_map<int, float> token_num;
+    std::pair<std::vector<int>, std::vector<float>>Historyfind(const std::vector<int>& Tokens, int top) {
+        std::pair<std::vector<int>, std::vector<float>> result;
+
+        std::vector<int> T = Tokens;
+        for (int i = 0; i < his_cnt - 1; i++) {
+            SuffixAutomaton::Node *cur = HistoryGSAM[i].start;
+            for (auto token : T) {
+                if (cur->ch.find(token) == cur->ch.end()) continue;
+                cur = cur->ch[token];
+            }
+            for (auto t : cur->ch) {
+                if (t.first == ENDPOS) continue;
+                float cnt = t.second->num;
+                token_num[t.first] += cnt;
+
+            }
+        }
+        std::vector<SuffixAutomaton::node> members;
+        for (auto [id, cnt] : token_num)
+            members.push_back({id, cnt});
+
+
+
+        sort(members.begin(), members.end());
+        float num = 0;
+        for (int i = 0; i < top && i < members.size(); i++)
+            num += members[i].cnt;
+        for (int i = 0; i < top && i < members.size(); i++)
+        {
+            result.first.push_back(members[i].id);
+            result.second.push_back(members[i].cnt);
+        }
+        return result;
+    }
+    std::vector<SuffixAutomaton> HistoryGSAM;
     std::unordered_map<std::string, int> task_id;
     std::vector<std::vector<int>> tokens;
     std::vector<SuffixAutomaton> GSAM;
     int task_cnt;
+    int his_cnt;
     SuffixAutomatonSet() {
         task_cnt = 0;
+        his_cnt = 0;
+        SuffixAutomaton H;
+        HistoryGSAM.push_back(H);
     }
 }GSAMS;
 
@@ -273,11 +336,18 @@ void insert(const std::string& task, const std::vector<int>& tokens) {
     }
 }
 
-void seq_end(std::string& task) {
+void seq_end(const std::string& task) {
     int taskID = GSAMS.task_id[task];
+    int hisnum = GSAMS.his_cnt;
     for (auto token : GSAMS.tokens[taskID])
-        GSAMS.HistoryGSAM.extend(token);
-    GSAMS.HistoryGSAM.extend(ENDPOS);
+        GSAMS.HistoryGSAM[hisnum].extend(token);
+    GSAMS.HistoryGSAM[hisnum].extend(ENDPOS);
+    size_t total_bytes = GSAMS.HistoryGSAM[hisnum].data_size();
+    double total_mb = static_cast<double>(total_bytes) / (1024 * 1024);
+    if (total_mb / (1024 * 1024) >= 128) {
+        GSAMS.count_historyGSAM(GSAMS.HistoryGSAM[hisnum]);
+        GSAMS.his_cnt++;
+    }
 }
 
 std::pair<std::pair<std::vector<int>, std::vector<float>>, std::pair<std::vector<int>, std::vector<float>>> get_GSAM_tokens(const std::string& task, const std::vector<int>& tokens, const int top) {
@@ -292,7 +362,7 @@ std::pair<std::pair<std::vector<int>, std::vector<float>>, std::pair<std::vector
         std::pair<std::vector<int>, std::vector<float>> Result;
         std::pair<std::vector<int>, std::vector<float>> HistoryResult;
         if (flag)  Result = GSAMS.GSAM[taskID].find(T, top);
-        HistoryResult = GSAMS.HistoryGSAM.find(T, top);
+        HistoryResult = GSAMS.Historyfind(T, top);
 
         if (!Result.first.empty() || !HistoryResult.first.empty())
             return {Result, HistoryResult};
@@ -488,13 +558,13 @@ void deserialize_sam(SuffixAutomatonSet::SuffixAutomaton& sam, std::ifstream& if
 
 void save_history_gsam(const std::string& filename) {
     std::ofstream ofs(filename, std::ios::binary);
-    serialize_sam(GSAMS.HistoryGSAM, ofs);
+    serialize_sam(GSAMS.HistoryGSAM[0], ofs);
 }
 
 // 从文件加载HistoryGSAM
 void load_history_gsam(const std::string& filename) {
     std::ifstream ifs(filename, std::ios::binary);
-    deserialize_sam(GSAMS.HistoryGSAM, ifs);
+    deserialize_sam(GSAMS.HistoryGSAM[0], ifs);
 }
 
 std::string trim_line(const std::string& s) {
@@ -581,7 +651,7 @@ void build_history_gsam(const std::string& load_filename, const std::string& sav
     std::vector<std::vector<int>> tokens = read_multiline_integer_file(load_filename);
     for (const auto& token : tokens)
         for (auto c : token)
-            GSAMS.HistoryGSAM.extend(c);
+            GSAMS.HistoryGSAM[0].extend(c);
     save_history_gsam(save_filename);
 }
 
@@ -595,13 +665,12 @@ PYBIND11_MODULE(GSAM_token, m) {
 
 int main() {
     // build_history_gsam("/data/share/SA_data/datastore_chat_small.txt", "/data/share/SA_data/datastore_chat_small.bin");
-    load_history_gsam("/data/share/SA_data/datastore_chat_small.bin");
-    std::pair<std::pair<std::vector<int>, std::vector<float>>, std::pair<std::vector<int>, std::vector<float>>> result = get_GSAM_tokens("1", {128000}, 10);
-    std::pair<std::vector<int>, std::vector<float>> Result = result.first;
-    std::pair<std::vector<int>, std::vector<float>> HistoryResult = result.second;
-    for (auto i : Result.first) std::cout << i << ' '; puts("");
-    for (auto i : Result.second) std::cout << i << ' '; puts("");
-    for (auto i : HistoryResult.first) std::cout << i << ' '; puts("");
-    for (auto i : HistoryResult.second) std::cout << i << ' '; puts("");
-    return 0;
+    // load_history_gsam("/data/share/SA_data/datastore_chat_small.bin");
+    // std::pair<std::pair<std::vector<int>, std::vector<float>>, std::pair<std::vector<int>, std::vector<float>>> result = get_GSAM_tokens("1", {128000}, 10);
+    // std::pair<std::vector<int>, std::vector<float>> Result = result.first;
+    // std::pair<std::vector<int>, std::vector<float>> HistoryResult = result.second;
+    // for (auto i : Result.first) std::cout << i << ' '; puts("");
+    // for (auto i : Result.second) std::cout << i << ' '; puts("");    for (auto i : HistoryResult.first) std::cout << i << ' '; puts("");
+    // for (auto i : HistoryResult.second) std::cout << i << ' '; puts("");
+    // return 0;
 }
