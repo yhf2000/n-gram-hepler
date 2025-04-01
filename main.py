@@ -41,11 +41,11 @@ class ReturnItem(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # SA_token.chatbuild("/home/lth/n-gram-hepler/datastore_chat_large.txt")
-    st = time.time()
+    # st = time.time()
     # app.state.reader_chat = draftretriever.Reader(index_file_path='/home/lth/lth_code/REST_llama3/REST/datastore/datastore_chat_large.idx',)
     # app.state.reader_code = draftretriever.Reader(index_file_path='/home/lth/lth_code/REST_llama3/REST/datastore/datastore_stack_large.idx',)
-    et = time.time()
-    print("build cost: ", et - st)
+    # et = time.time()
+    # print("build cost: ", et - st)
     yield
 
 app = FastAPI(lifespan=lifespan)

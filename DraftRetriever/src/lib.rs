@@ -366,6 +366,168 @@ impl Reader {
         ))
 
     }
+
+    fn search_original(
+        &mut self,
+        py_substring: &PyList,
+        k: Option<i32>,
+        choices: Option<i32>,
+        long: Option<i32>,
+    ) -> PyResult<(Vec<Vec<i32>>, Vec<Vec<i32>>, Vec<i32>, Vec<i32>, Vec<Vec<i32>>)> {
+
+        // substring_i32 is just a rust version of py_substring
+        let mut substring_i32 = Vec::new();
+        for item in py_substring.iter() {
+            let num: i32 = item.extract()?;
+            substring_i32.push(num);
+        }
+
+        let results = Arc::new(Mutex::new(Vec::new()));
+
+        // each sub index is a buffer/suffix pair
+        self.sub_indexes.par_iter_mut().for_each(
+            |sub_index| {
+                let mut start_of_indices = None;
+                let mut end_of_indices = None;
+
+                // since suffix arrays have the suffixes in sorted order, we do a binary search
+                // over the suffix array
+                // this binary search finds the start of the matching suffixes
+                let mut left_anchor = sub_index.suffixes_file_start;
+                let mut right_anchor = sub_index.suffixes_file_end - 4;
+                while left_anchor <= right_anchor {
+                    let middle_anchor = left_anchor + ((right_anchor - left_anchor) / 4 / 2 * 4);
+                    sub_index.index_file.seek(SeekFrom::Start(middle_anchor as u64)).unwrap();
+                    // data_index is the value at middle_anchor in the suffix array
+                    let data_index = sub_index.index_file.read_i32::<LittleEndian>().unwrap();
+                    // line is the actual suffix
+                    let line = &sub_index.data[(data_index) as usize..];
+
+                    // we don't use the entire suffix. we look for suffixes that start with the substring we're looking for
+                    // the suffix array sorts suffixes based on the start of the suffix, so this technique is sound
+                    // the "match length" is defined by the length of substring_i32. the suffix array doesn't need to worry about "match length"
+                    if line.starts_with(&substring_i32) {
+                        start_of_indices = Some(middle_anchor);
+                        right_anchor = middle_anchor - 4;
+                    } else {
+                        match line.cmp(&substring_i32) {
+                            std::cmp::Ordering::Less => left_anchor = middle_anchor + 4,
+                            std::cmp::Ordering::Greater => right_anchor = middle_anchor - 4,
+                            std::cmp::Ordering::Equal => {},
+                        };
+                    }
+                }
+                if start_of_indices.is_none() {
+                    return;
+                }
+
+                // this binary search finds the end of the matching suffixes
+                let mut right_anchor = sub_index.suffixes_file_end - 4;
+                while left_anchor <= right_anchor {
+                    let middle_anchor = left_anchor + ((right_anchor - left_anchor) / 4 / 2 * 4);
+                    sub_index.index_file.seek(SeekFrom::Start(middle_anchor as u64)).unwrap();
+                    let data_index = sub_index.index_file.read_i32::<LittleEndian>().unwrap();
+                    let line = &sub_index.data[(data_index) as usize..];
+                    if line.starts_with(&substring_i32) {
+                        end_of_indices = Some(middle_anchor);
+                        left_anchor = middle_anchor + 4;
+                    } else {
+                        match line.cmp(&substring_i32) {
+                            std::cmp::Ordering::Less => left_anchor = middle_anchor + 4,
+                            std::cmp::Ordering::Greater => right_anchor = middle_anchor - 4,
+                            std::cmp::Ordering::Equal => {},
+                        };
+                    }
+                }
+
+                let start_of_indices = start_of_indices.unwrap();
+                let end_of_indices = end_of_indices.unwrap();
+
+                let mut suffixes = vec![0; end_of_indices - start_of_indices + 4];
+
+                sub_index.index_file.seek(SeekFrom::Start(start_of_indices as u64)).unwrap();
+                sub_index.index_file.read_exact(&mut suffixes).unwrap();
+
+                let mut matches_ranges = AHashSet::new();
+
+                let mut cnt = 0;
+                let k = k.unwrap_or(5000);
+                let long = long.unwrap_or(10);
+                let indices_size = (end_of_indices - start_of_indices + 4) / 4;
+                let initial_capacity = std::cmp::min(indices_size, k as usize);
+                let mut local_results = Vec::with_capacity(initial_capacity);
+
+                for suffix in suffixes.chunks_mut(4) {
+                    let data_index = LittleEndian::read_i32(suffix);
+                    if matches_ranges.insert(data_index) {
+                        let sub_string_plus = &sub_index.data[data_index as usize + substring_i32.len() ..std::cmp::min(data_index as usize + substring_i32.len() + long as usize,  sub_index.data.len())];
+
+                        local_results.push(sub_string_plus.to_vec());
+                        cnt += 1;
+                        if cnt >= k as usize {
+                            break;
+                        }
+
+                    }
+                }
+
+                results.lock().extend(local_results);
+            }
+        );
+
+        let results = results.lock();
+
+        if results.is_empty() {
+            return Ok((Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()));
+        }
+
+        let mut cnt = HashMap::new();
+        for retrieved_token in &*results {
+            for j in 0..retrieved_token.len() {
+                let tmp_token = &retrieved_token[0..=j];
+                let counter = cnt.entry(tmp_token).or_insert(0);
+                *counter += 1;
+            }
+        }
+
+        let choices = choices.unwrap_or(64);
+        // The items in the heap must be a Trie.
+        let mut heap = BinaryHeap::new();
+        for (k, v) in &cnt {
+            if heap.len() < (choices as usize) {
+                heap.push((Reverse(*v), k));
+            } else if let Some(&(Reverse(top_v), _)) = heap.peek() {
+                if *v > top_v {
+                    heap.pop();
+                    heap.push((Reverse(*v), k));
+                }
+            }
+        }
+        let verified: Vec<_> = heap.into_iter().map(|(_, k)| k.to_vec()).collect();
+        // Convert into a HashSet to remove duplicates
+        let verified: std::collections::HashSet<_> = verified.into_iter().collect();
+        let verified: Vec<_> = verified.into_iter().collect();
+
+        // Because multiple nodes in the Trie may have same weights around the threshold, the number of draft tokens may exceed choices
+        // We roughly cut nodes to be less than choices in most cases.
+        let paths = cut_to_choices(verified, choices);
+
+        let (draft_choices, max_branch) = get_draft_choices(paths.clone());
+
+        if draft_choices.len() > choices as usize {
+            // It might not be cut enough because cut_to_choices() is best effort, as mentioned in the comment above
+            return Err(exceptions::PyValueError::new_err("draft_choices was not cut enough"));
+        }
+
+        let (draft_attn_mask, tree_indices, draft_position_ids, retrieve_indices) = generate_draft_buffers(draft_choices.clone(), max_branch);
+
+        let max_length = paths.iter().map(|path| path.len()).max().unwrap_or(0);
+
+        Ok((paths.into_iter().map(|path| pad_path(path, max_length, -2)).collect::<Vec<Vec<i32>>>(), draft_attn_mask, tree_indices, draft_position_ids, retrieve_indices))
+    }
+
+
+
 }
 
 

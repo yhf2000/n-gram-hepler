@@ -16,8 +16,8 @@ cmake --build build
 conda activate ngram
 cd DraftRetriever
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-maturin build --release --strip -i python3.9 # will produce a .whl file
+maturin build --release --strip -i python3.11 # will produce a .whl file
 cd target
-cd wheel
+cd wheels
 pip3 install [.whl]
 ```

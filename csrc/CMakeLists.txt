@@ -17,16 +17,42 @@ FetchContent_MakeAvailable(pybind11)
 
 find_package(Python REQUIRED COMPONENTS Interpreter Development)
 
+#pybind11_add_module(
+#    SA_token SHARED SA.cpp
+#)
+#
+#target_include_directories(SA_token PRIVATE
+#    ${Python_INCLUDE_DIRS}
+#)
+#
+#target_link_libraries(SA_token PRIVATE
+#    pybind11::module
+#)
+
+
+#pybind11_add_module(
+#    Trie_token SHARED Trie.cpp
+#)
+#
+#target_include_directories(Trie_token PRIVATE
+#    ${Python_INCLUDE_DIRS}
+#)
+#
+#target_link_libraries(Trie_token PRIVATE
+#    pybind11::module
+#)
+
 pybind11_add_module(
-    SA_token SHARED SA.cpp
+    GSAM_token SHARED GSAM.cpp
 )
 
-target_include_directories(SA_token PRIVATE
+target_include_directories(GSAM_token PRIVATE
     ${Python_INCLUDE_DIRS}
 )
 
-target_link_libraries(SA_token PRIVATE
+target_link_libraries(GSAM_token PRIVATE
     pybind11::module
 )
+
 
 #rm -rf build && cmake -B build && cmake --build build
