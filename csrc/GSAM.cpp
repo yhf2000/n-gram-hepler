@@ -262,19 +262,21 @@ struct SuffixAutomatonSet {
 
     void update_historyGSAM(SuffixAutomaton SAM, SuffixAutomaton::Node* cur) {
         cur->num = SAM.lct.query(SAM.id(cur));
-        for (auto to : cur->ch)
-            update_historyGSAM(SAM, to.second);
+        for (auto to : cur->ch) {
+            // printf("%d ", to.first);
+            if (to.second->num == 0)
+                update_historyGSAM(SAM, to.second);
+        }
     }
     void count_historyGSAM(const SuffixAutomaton& SAM) {
         auto root = SAM.start;
         update_historyGSAM(SAM, root);
     }
-    std::unordered_map<int, float> token_num;
     std::pair<std::vector<int>, std::vector<float>>Historyfind(const std::vector<int>& Tokens, int top) {
         std::pair<std::vector<int>, std::vector<float>> result;
-
+        std::unordered_map<int, float> token_num;
         std::vector<int> T = Tokens;
-        for (int i = 0; i < his_cnt - 1; i++) {
+        for (int i = 0; i < his_cnt; i++) {
             SuffixAutomaton::Node *cur = HistoryGSAM[i].start;
             for (auto token : T) {
                 if (cur->ch.find(token) == cur->ch.end()) continue;
@@ -306,6 +308,7 @@ struct SuffixAutomatonSet {
     }
     std::vector<SuffixAutomaton> HistoryGSAM;
     std::unordered_map<std::string, int> task_id;
+    std::unordered_map<std::string, bool> task_vis;
     std::vector<std::vector<int>> tokens;
     std::vector<SuffixAutomaton> GSAM;
     int task_cnt;
@@ -319,8 +322,9 @@ struct SuffixAutomatonSet {
 }GSAMS;
 
 void insert(const std::string& task, const std::vector<int>& tokens) {
-    if (GSAMS.task_id[task] == 0)
+    if (GSAMS.task_vis[task] == false)
     {
+        GSAMS.task_vis[task] = true;
         GSAMS.task_id[task] = GSAMS.task_cnt;
         SuffixAutomatonSet::SuffixAutomaton N;
         std::vector<int> NU;
@@ -337,24 +341,28 @@ void insert(const std::string& task, const std::vector<int>& tokens) {
 }
 
 void seq_end(const std::string& task) {
-    int taskID = GSAMS.task_id[task];
     int hisnum = GSAMS.his_cnt;
-    for (auto token : GSAMS.tokens[taskID])
-        GSAMS.HistoryGSAM[hisnum].extend(token);
-    GSAMS.HistoryGSAM[hisnum].extend(ENDPOS);
+    if (GSAMS.task_vis[task] == true) {
+        auto taskID = GSAMS.task_id[task];
+        for (auto token : GSAMS.tokens[taskID])
+            GSAMS.HistoryGSAM[hisnum].extend(token);
+        GSAMS.HistoryGSAM[hisnum].extend(ENDPOS);
+    }
     size_t total_bytes = GSAMS.HistoryGSAM[hisnum].data_size();
     double total_mb = static_cast<double>(total_bytes) / (1024 * 1024);
-    if (total_mb / (1024 * 1024) >= 128) {
+    if (total_mb / (1024 * 1024) >= 128 || task == "load") {
         GSAMS.count_historyGSAM(GSAMS.HistoryGSAM[hisnum]);
         GSAMS.his_cnt++;
+        SuffixAutomatonSet::SuffixAutomaton N;
+        GSAMS.HistoryGSAM.push_back(N);
     }
+    GSAMS.task_vis[task] = false;
 }
 
 std::pair<std::pair<std::vector<int>, std::vector<float>>, std::pair<std::vector<int>, std::vector<float>>> get_GSAM_tokens(const std::string& task, const std::vector<int>& tokens, const int top) {
-    int taskID = GSAMS.task_id[task];
-    int flag = false;
-    if (GSAMS.tokens.size() >= taskID - 1 && GSAMS.tokens[taskID].size() > 0)
-        flag = true;
+    int flag = (GSAMS.task_vis[task] == true);
+    auto taskID = GSAMS.task_id[task];
+
     for (int i = 0; i < tokens.size(); i++)
     {
         std::vector<int> T;
@@ -565,6 +573,7 @@ void save_history_gsam(const std::string& filename) {
 void load_history_gsam(const std::string& filename) {
     std::ifstream ifs(filename, std::ios::binary);
     deserialize_sam(GSAMS.HistoryGSAM[0], ifs);
+    seq_end("load");
 }
 
 std::string trim_line(const std::string& s) {
@@ -649,9 +658,11 @@ std::vector<std::vector<int>> read_multiline_integer_file(const std::string& fil
 
 void build_history_gsam(const std::string& load_filename, const std::string& save_filename) {
     std::vector<std::vector<int>> tokens = read_multiline_integer_file(load_filename);
-    for (const auto& token : tokens)
+    for (const auto& token : tokens) {
         for (auto c : token)
             GSAMS.HistoryGSAM[0].extend(c);
+        GSAMS.HistoryGSAM[0].extend(ENDPOS);
+    }
     save_history_gsam(save_filename);
 }
 
@@ -664,13 +675,18 @@ PYBIND11_MODULE(GSAM_token, m) {
 }
 
 int main() {
-    // build_history_gsam("/data/share/SA_data/datastore_chat_small.txt", "/data/share/SA_data/datastore_chat_small.bin");
+    // build_history_gsam("/data/share/SA_data/datastore_chat_small_after.txt", "/data/share/SA_data/datastore_chat_large.bin");
     // load_history_gsam("/data/share/SA_data/datastore_chat_small.bin");
-    // std::pair<std::pair<std::vector<int>, std::vector<float>>, std::pair<std::vector<int>, std::vector<float>>> result = get_GSAM_tokens("1", {128000}, 10);
+    // insert("test", {128000, 1919, 810});
+    // insert("another test", {128000, 114514, 112233});
+    // seq_end("test");
+    // seq_end("another test");
+    // std::pair<std::pair<std::vector<int>, std::vector<float>>, std::pair<std::vector<int>, std::vector<float>>> result = get_GSAM_tokens("another test", {128000, 1919}, 10);
     // std::pair<std::vector<int>, std::vector<float>> Result = result.first;
     // std::pair<std::vector<int>, std::vector<float>> HistoryResult = result.second;
     // for (auto i : Result.first) std::cout << i << ' '; puts("");
-    // for (auto i : Result.second) std::cout << i << ' '; puts("");    for (auto i : HistoryResult.first) std::cout << i << ' '; puts("");
+    // for (auto i : Result.second) std::cout << i << ' '; puts("");
+    // for (auto i : HistoryResult.first) std::cout << i << ' '; puts("");
     // for (auto i : HistoryResult.second) std::cout << i << ' '; puts("");
-    // return 0;
+    return 0;
 }
