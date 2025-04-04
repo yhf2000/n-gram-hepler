@@ -1,7 +1,8 @@
 import torch
 import sys
 sys.path.append("csrc/build")
-
+from concurrent.futures import ThreadPoolExecutor
+import os
 
 class SA :
     import draftretriever
@@ -104,44 +105,53 @@ class GSAM:
     def seq_end(self, task):
         self.GSAM.seq_end(task)
     def predict(self, tasks, tokens, top = 10, delta = 0.5):
-        token_lists = []
-        cnt_lists = []
-        for Idx in range(len(tasks)):
-            task = tasks[Idx]
-            token = tokens[Idx]
+        def _process_item(task, token):
             result = self.GSAM.get_SAM_tokens(task, token, top)
-            self_token = result[0][0]
-            self_cnt = result[0][1]
-            history_token = result[1][0]
-            history_cnt = result[1][1]
-
-            for idx in range(len(self_cnt)):
-                self_cnt[idx] *= delta
-            for idx in range(len(history_cnt)):
-                history_cnt[idx] *= (1 - delta)
-            token_to_index = {t: idx for idx, t in enumerate(self_token)}
-            for idx, t in enumerate(history_token):
-                if t in token_to_index:
-                    self_cnt[token_to_index[t]] += history_cnt[idx]
+            self_token, self_cnt = result[0]
+            history_token, history_cnt = result[1]
+            self_cnt = [c * delta for c in self_cnt]
+            history_cnt = [c * (1 - delta) for c in history_cnt]
+            token_map = {}
+            for idx, t in enumerate(self_token):
+                token_map[t] = idx
+            for t, cnt in zip(history_token, history_cnt):
+                if t in token_map:
+                    self_cnt[token_map[t]] += cnt
                 else:
                     self_token.append(t)
-                    self_cnt.append(history_cnt[idx])
-                    token_to_index[t] = len(self_token) - 1
+                    self_cnt.append(cnt)
+                    token_map[t] = len(self_token) - 1
             total = sum(self_cnt)
-            if total == 0:
-                normalized_cnt = [0.0] * len(self_cnt)
-            else:
-                normalized_cnt = [cnt / total for cnt in self_cnt]
+            normalized = [c / total if total != 0 else 0.0 for c in self_cnt]
             sorted_pairs = sorted(
-                zip(self_token, normalized_cnt),
+                zip(self_token, normalized),
                 key=lambda x: x[1],
                 reverse=True
-            )
-            top_tokens = [pair[0] for pair in sorted_pairs[:top]]
-            top_counts = [pair[1] for pair in sorted_pairs[:top]]
-            token_lists.append(top_tokens)
-            cnt_lists.append(top_counts)
+            )[:top]
 
+            return (
+                [pair[0] for pair in sorted_pairs],
+                [pair[1] for pair in sorted_pairs]
+            )
+
+        with ThreadPoolExecutor(max_workers=min(len(tasks), os.cpu_count() * 4)) as executor:  # 限制最大线程数
+            futures = [
+                executor.submit(_process_item, task, token)
+                for task, token in zip(tasks, tokens)
+            ]
+
+            token_lists = []
+            cnt_lists = []
+            for future in futures:
+                try:
+                    tokens, counts = future.result()
+                    token_lists.append(tokens)
+                    cnt_lists.append(counts)
+                except Exception as e:
+                    # 错误处理（记录日志或返回默认值）
+                    print(f"处理失败: {str(e)}")
+                    token_lists.append([])
+                    cnt_lists.append([])
 
         if not token_lists:
             return torch.tensor([]), torch.tensor([])
